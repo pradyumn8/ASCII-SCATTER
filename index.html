@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCII Scatter</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0d0d0d;
+  --surface: #141414;
+  --border: #2a2a2a;
+  --text: #e8e8e8;
+  --muted: #555;
+  --accent: #f0e040;
+  --accent2: #40c8f0;
+  --danger: #f05040;
+  --font: 'IBM Plex Mono', monospace;
+}
+
+html, body {
+  width: 100%; min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  overflow-x: hidden;
+}
+
+/* ─── page needs scroll height so scroll events fire ─── */
+body { min-height: 400vh; }
+
+/* ─── fixed top bar ─── */
+#topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  height: 52px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px;
+  background: rgba(13,13,13,0.96);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  font-size: 11px; letter-spacing: .12em; color: var(--muted);
+}
+#topbar .brand { color: var(--accent); font-weight: 700; font-size: 12px; letter-spacing: .2em; }
+#topbar .stats span { margin-left: 20px; }
+#topbar .stats b { color: var(--text); }
+
+/* ─── center stage ─── */
+#stage {
+  position: fixed; /* sits behind everything scrollable but above bg */
+  top: 52px; left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  pointer-events: none; /* let scroll pass through */
+}
+#stage canvas {
+  pointer-events: none;
+  /* transparent bg: no background property set */
+  max-width: calc(100vw - 32px);
+}
+
+/* ─── upload overlay ─── */
+#upload-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 20px;
+  background: var(--bg);
+}
+
+.drop-box {
+  position: relative;
+  width: 380px; max-width: calc(100vw - 40px);
+  height: 220px;
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  overflow: hidden;
+}
+.drop-box::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 100%, rgba(240,224,64,.05) 0%, transparent 70%);
+  pointer-events: none;
+}
+.drop-box:hover, .drop-box.dragover {
+  border-color: var(--accent);
+  background: rgba(240,224,64,.04);
+}
+.drop-box input[type=file] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+.drop-icon {
+  width: 40px; height: 40px;
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: var(--accent);
+}
+.drop-title { font-size: 11px; letter-spacing: .2em; color: var(--text); font-weight: 700; }
+.drop-sub { font-size: 10px; letter-spacing: .1em; color: var(--muted); }
+
+#err {
+  font-size: 10px; letter-spacing: .1em;
+  color: var(--danger); min-height: 14px; text-align: center;
+}
+
+/* ─── processing indicator ─── */
+#processing {
+  position: fixed; inset: 0; z-index: 300;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(13,13,13,.95);
+  font-size: 11px; letter-spacing: .25em; color: var(--accent);
+}
+
+/* ─── reload btn (appears after image loaded) ─── */
+#reload-btn {
+  position: fixed; bottom: 24px; right: 24px; z-index: 200;
+  display: none;
+  background: none; border: 1px solid var(--border);
+  color: var(--muted); font-family: var(--font);
+  font-size: 10px; letter-spacing: .15em;
+  padding: 8px 16px; cursor: pointer;
+  transition: border-color .2s, color .2s;
+  pointer-events: all;
+}
+#reload-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ─── scroll hint ─── */
+#scroll-hint {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; letter-spacing: .2em; color: var(--muted);
+  display: none; pointer-events: none;
+  animation: pulse 3s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:.8} }
+
+/* ─── corner deco ─── */
+.corner {
+  position: fixed; z-index: 150;
+  width: 20px; height: 20px;
+  pointer-events: none;
+}
+.corner.tl { top: 60px; left: 12px; border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.corner.tr { top: 60px; right: 12px; border-top: 1px solid var(--border); border-right: 1px solid var(--border); }
+.corner.bl { bottom: 12px; left: 12px; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); }
+.corner.br { bottom: 12px; right: 12px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<!-- top bar -->
+<div id="topbar">
+  <span class="brand">ASCII / SCATTER</span>
+  <span class="stats">
+    <span>CHARS <b id="s-chars">—</b></span>
+    <span>GRID <b id="s-grid">—</b></span>
+    <span>STATUS <b id="s-status">IDLE</b></span>
+  </span>
+</div>
+
+<!-- corners -->
+<div class="corner tl"></div>
+<div class="corner tr"></div>
+<div class="corner bl"></div>
+<div class="corner br"></div>
+
+<!-- canvas stage (transparent canvas, fixed behind scroll) -->
+<div id="stage">
+  <canvas id="c"></canvas>
+</div>
+
+<!-- upload overlay -->
+<div id="upload-overlay">
+  <div class="drop-box" id="drop-box">
+    <input type="file" id="file-input" accept="image/*">
+    <div class="drop-icon">↑</div>
+    <div class="drop-title">DROP IMAGE HERE</div>
+    <div class="drop-sub">PNG · JPG · WEBP &nbsp;·&nbsp; transparency preserved</div>
+  </div>
+  <div id="err"></div>
+</div>
+
+<!-- processing -->
+<div id="processing">PROCESSING IMAGE ···</div>
+
+<!-- controls -->
+<button id="reload-btn">↺ NEW IMAGE</button>
+<div id="scroll-hint">SCROLL TO SCATTER</div>
+
+<script>
+// ─────────────────────────────────────────────────────────
+//  CONFIG
+// ─────────────────────────────────────────────────────────
+const C = {
+  cellSize:     9,          // px per character cell
+  chars:        '@#B%8WMw*ozc+i;:,. ',
+  mouseRadius:  90,         // px repulsion radius
+  mouseForce:   20,         // repulsion strength
+  scrollForce:  0.7,        // scroll velocity multiplier
+  maxScrollV:   30,         // clamp scroll velocity
+  springK:      0.065,      // spring stiffness (return to origin)
+  damping:      0.78,       // velocity damping per frame
+  idleMs:       150,        // ms of stillness = idle
+};
+
+// ─────────────────────────────────────────────────────────
+//  DOM
+// ─────────────────────────────────────────────────────────
+const canvas     = document.getElementById('c');
+const ctx        = canvas.getContext('2d');
+const fileInput  = document.getElementById('file-input');
+const dropBox    = document.getElementById('drop-box');
+const overlay    = document.getElementById('upload-overlay');
+const procEl     = document.getElementById('processing');
+const reloadBtn  = document.getElementById('reload-btn');
+const scrollHint = document.getElementById('scroll-hint');
+const errEl      = document.getElementById('err');
+const sChars     = document.getElementById('s-chars');
+const sGrid      = document.getElementById('s-grid');
+const sStatus    = document.getElementById('s-status');
+
+// ─────────────────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────────────────
+let particles    = [];
+let rafId        = null;
+
+let mx = -99999, my = -99999, mouseActive = false, mouseTimer = null;
+
+let scrollVel    = 0;
+let scrollActive = false;
+let scrollTimer  = null;
+let lastSY       = window.scrollY;
+let lastST       = 0;
+
+// ─────────────────────────────────────────────────────────
+//  FILE HANDLING
+//  Use FileReader → data URL to avoid tainted-canvas errors
+// ─────────────────────────────────────────────────────────
+function handleFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showErr('UNSUPPORTED FILE TYPE'); return; }
+  showErr('');
+  procEl.style.display = 'flex';
+  sStatus.textContent  = 'LOADING';
+
+  const reader = new FileReader();
+
+  reader.onerror = () => {
+    procEl.style.display = 'none';
+    showErr('FILE READ ERROR');
+    sStatus.textContent = 'ERROR';
+  };
+
+  reader.onload = ev => {
+    const img = new Image();
+
+    img.onerror = () => {
+      procEl.style.display = 'none';
+      showErr('IMAGE DECODE ERROR');
+      sStatus.textContent = 'ERROR';
+    };
+
+    img.onload = () => {
+      procEl.style.display = 'none';
+      initParticles(img);
+    };
+
+    // data: URL — always safe for getImageData, no CORS issues
+    img.src = ev.target.result;
+  };
+
+  reader.readAsDataURL(file);
+}
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+// Drag-and-drop
+dropBox.addEventListener('dragover',  e => { e.preventDefault(); dropBox.classList.add('dragover'); });
+dropBox.addEventListener('dragleave', ()  => dropBox.classList.remove('dragover'));
+dropBox.addEventListener('drop', e => {
+  e.preventDefault();
+  dropBox.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+// Reload
+reloadBtn.addEventListener('click', () => {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  particles = [];
+  overlay.style.display   = 'flex';
+  reloadBtn.style.display = 'none';
+  scrollHint.style.display = 'none';
+  sStatus.textContent = 'IDLE';
+  sChars.textContent  = '—';
+  sGrid.textContent   = '—';
+  fileInput.value = '';
+  showErr('');
+});
+
+function showErr(msg) { errEl.textContent = msg; }
+
+// ─────────────────────────────────────────────────────────
+//  BUILD PARTICLES FROM IMAGE
+// ─────────────────────────────────────────────────────────
+function initParticles(img) {
+  sStatus.textContent = 'BUILDING';
+
+  // Fit image to viewport (below topbar)
+  const vw = window.innerWidth  - 32;
+  const vh = window.innerHeight - 52 - 40;
+  const scale = Math.min(vw / img.width, vh / img.height, 1);
+
+  const W = Math.floor(img.width  * scale);
+  const H = Math.floor(img.height * scale);
+  const CS = C.cellSize;
+  const cols = Math.floor(W / CS);
+  const rows = Math.floor(H / CS);
+
+  // Sample image at (cols × rows) resolution
+  const sampler = document.createElement('canvas');
+  sampler.width  = cols;
+  sampler.height = rows;
+  const sc = sampler.getContext('2d', { willReadFrequently: true });
+  sc.drawImage(img, 0, 0, cols, rows);
+
+  let px;
+  try {
+    px = sc.getImageData(0, 0, cols, rows).data;
+  } catch (e) {
+    showErr('PIXEL SAMPLE ERROR: ' + e.message);
+    sStatus.textContent = 'ERROR';
+    return;
+  }
+
+  // Set display canvas size
+  canvas.width  = cols * CS;
+  canvas.height = rows * CS;
+
+  const list  = [];
+  const CHARS = C.chars;
+  const CL    = CHARS.length;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c2 = 0; c2 < cols; c2++) {
+      const i = (r * cols + c2) * 4;
+      const R = px[i], G = px[i+1], B = px[i+2], A = px[i+3];
+
+      if (A < 16) continue; // skip transparent
+
+      const brightness = (R * 0.299 + G * 0.587 + B * 0.114) / 255;
+      const ch = CHARS[Math.min(Math.floor(brightness * CL), CL - 1)];
+      if (ch === ' ') continue; // skip blank
+
+      const ox = c2 * CS + CS * 0.5;
+      const oy = r  * CS + CS * 0.5;
+
+      list.push({
+        ch,
+        ox, oy,       // rest position
+        x: ox, y: oy, // current position
+        vx: 0, vy: 0,
+        color: `rgba(${R},${G},${B},${+(A / 255).toFixed(3)})`,
+      });
+    }
+  }
+
+  particles = list;
+  sChars.textContent  = list.length.toLocaleString();
+  sGrid.textContent   = `${cols}×${rows}`;
+  sStatus.textContent = 'ACTIVE';
+
+  overlay.style.display    = 'none';
+  reloadBtn.style.display  = 'block';
+  scrollHint.style.display = 'block';
+
+  if (rafId) cancelAnimationFrame(rafId);
+  animate();
+}
+
+// ─────────────────────────────────────────────────────────
+//  INPUT TRACKING
+// ─────────────────────────────────────────────────────────
+
+// Mouse — convert to canvas-local coords
+window.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mx = e.clientX - r.left;
+  my = e.clientY - r.top;
+  mouseActive = true;
+  clearTimeout(mouseTimer);
+  mouseTimer = setTimeout(() => {
+    mouseActive = false;
+    mx = -99999; my = -99999;
+  }, C.idleMs);
+});
+
+// Mouse leaves window entirely
+window.addEventListener('mouseout', e => {
+  if (!e.relatedTarget) { mouseActive = false; mx = -99999; my = -99999; }
+});
+
+// Scroll velocity
+window.addEventListener('scroll', () => {
+  const now = performance.now();
+  const dy  = window.scrollY - lastSY;
+  const dt  = Math.max(now - lastST, 1);
+
+  // velocity in px/frame (approx 60fps frame = 16.67ms)
+  const raw = (dy / dt) * 16.67;
+  scrollVel = Math.max(-C.maxScrollV, Math.min(C.maxScrollV, raw));
+
+  lastSY = window.scrollY;
+  lastST = now;
+  scrollActive = true;
+
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => {
+    scrollActive = false;
+    scrollVel = 0;
+  }, C.idleMs);
+}, { passive: true });
+
+// ─────────────────────────────────────────────────────────
+//  ANIMATION LOOP
+// ─────────────────────────────────────────────────────────
+function animate() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.font         = `${C.cellSize}px "IBM Plex Mono", monospace`;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+
+  const MR2 = C.mouseRadius * C.mouseRadius;
+  const absV = Math.abs(scrollVel);
+
+  for (let k = 0, n = particles.length; k < n; k++) {
+    const p = particles[k];
+
+    // ── Mouse repulsion ──────────────────────────────
+    if (mouseActive) {
+      const dx = p.x - mx;
+      const dy = p.y - my;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < MR2 && d2 > 0.0001) {
+        const d   = Math.sqrt(d2);
+        const str = (C.mouseRadius - d) / C.mouseRadius; // 0→1 falloff
+        p.vx += (dx / d) * str * C.mouseForce;
+        p.vy += (dy / d) * str * C.mouseForce;
+      }
+    }
+
+    // ── Scroll scatter ───────────────────────────────
+    if (scrollActive && absV > 0.4) {
+      // Each particle gets a random radial kick scaled by scroll speed
+      const angle = Math.random() * Math.PI * 2;
+      const mag   = absV * C.scrollForce;
+      p.vx += Math.cos(angle) * mag;
+      p.vy += Math.sin(angle) * mag + scrollVel * 0.12;
+    }
+
+    // ── Spring back to rest ──────────────────────────
+    p.vx += (p.ox - p.x) * C.springK;
+    p.vy += (p.oy - p.y) * C.springK;
+
+    // ── Damping ──────────────────────────────────────
+    p.vx *= C.damping;
+    p.vy *= C.damping;
+
+    // ── Integrate ────────────────────────────────────
+    p.x += p.vx;
+    p.y += p.vy;
+
+    // ── Draw ─────────────────────────────────────────
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.ch, p.x, p.y);
+  }
+
+  rafId = requestAnimationFrame(animate);
+}
+</script>
+</body>
+</html>
